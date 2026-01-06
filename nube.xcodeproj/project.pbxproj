@@ -19,7 +19,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		07B171932F0D316300DECFD3 /* nube */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = nube; sourceTree = BUILT_PRODUCTS_DIR; };
+		07B171932F0D316300DECFD3 /* nube */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; name = nube; path = /Users/carlos/GitHub/nube/build/Debug/nube; sourceTree = "<absolute>"; };
+		07B171A52F0D360A00DECFD3 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -44,17 +45,9 @@
 		07B1718A2F0D316300DECFD3 = {
 			isa = PBXGroup;
 			children = (
+				07B171A52F0D360A00DECFD3 /* readme.md */,
 				07B171952F0D316300DECFD3 /* nube */,
-				07B171942F0D316300DECFD3 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		07B171942F0D316300DECFD3 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				07B171932F0D316300DECFD3 /* nube */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -107,7 +100,7 @@
 			mainGroup = 07B1718A2F0D316300DECFD3;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 07B171942F0D316300DECFD3 /* Products */;
+			productRefGroup = 07B1718A2F0D316300DECFD3;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
