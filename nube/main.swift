@@ -1,9 +1,35 @@
 import Cocoa
+import SwiftUI
+
+// SwiftUI view for the status bar icon
+struct StatusBarIconView: View {
+    let status: AppDelegate.SyncStatus
+    
+    var body: some View {
+        Group {
+            switch status {
+            case .idle:
+                Image(systemName: "icloud.fill")
+                    .symbolRenderingMode(.monochrome)
+            case .syncing:
+                Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90.icloud.fill")
+                    .symbolRenderingMode(.monochrome)
+                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
+            case .error:
+                Image(systemName: "icloud.slash.fill")
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.system(size: 16, weight: .bold))
+        .frame(width: 18, height: 18)
+    }
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
-    var animationTimer: Timer?
+    var hostingView: NSHostingView<StatusBarIconView>?
     
     // Sync status
     enum SyncStatus {
@@ -17,8 +43,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updateIcon()
         }
     }
-    
-    var animationFrame = 0
     
     // Mock data for prototype
     var recentFiles = [
@@ -37,8 +61,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var downloadPending = 1.8 // GB
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Create status bar item with cloud icon
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Create status bar item with fixed width for padding
+        statusItem = NSStatusBar.system.statusItem(withLength: 18)
         
         // Set initial icon
         updateIcon()
@@ -64,26 +88,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func updateIcon() {
-        // Stop any existing animation
-        animationTimer?.invalidate()
-        animationTimer = nil
-        
         guard let button = statusItem.button else { return }
         
-        switch syncStatus {
-        case .idle:
-            button.image = NSImage(systemSymbolName: "icloud.fill", accessibilityDescription: "iCloud Drive - Idle")
-            
-        case .syncing:
-            button.image = NSImage(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90.icloud.fill", accessibilityDescription: "iCloud Drive - Syncing")
-            
-        case .error:
-            button.image = NSImage(systemSymbolName: "icloud.slash.fill", accessibilityDescription: "iCloud Drive - Error")
+        // Remove old hosting view if exists
+        hostingView?.removeFromSuperview()
+        
+        // Create SwiftUI hosting view with icon
+        let iconView = StatusBarIconView(status: syncStatus)
+        hostingView = NSHostingView(rootView: iconView)
+        hostingView?.frame = NSRect(x: 0, y: 0, width: 18, height: 18)
+        
+        // Add to button
+        button.subviews.forEach { $0.removeFromSuperview() }
+        if let hostingView = hostingView {
+            button.addSubview(hostingView)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                hostingView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                hostingView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                hostingView.widthAnchor.constraint(equalToConstant: 18),
+                hostingView.heightAnchor.constraint(equalToConstant: 18)
+            ])
         }
-    }
-    
-    func animateSyncIcon() {
-        // No longer needed - using static syncing icon
     }
     
     func simulateStatusChange() {
@@ -162,9 +188,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func openICloudFolder() {
         // Open the iCloud Drive folder in Finder
-        let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents")
-        
-        // Fallback to user's iCloud Drive folder
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         let iCloudPath = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         
@@ -213,49 +236,22 @@ app.run()
 /*
  PROTOTYPE FEATURES:
  
- ✅ Dynamic icon based on sync status:
-    - Idle: Static cloud icon
-    - Syncing: Animated cloud with up/down arrows
-    - Error: Cloud with slash
- ✅ Status indicator in menu
+ ✅ Dynamic icon with SwiftUI symbol effects:
+    - Idle: Static cloud icon (bold)
+    - Syncing: Rotating sync arrows with smooth animation
+    - Error: Red cloud with slash (bold)
  ✅ Recents Section: 5 recent files (mock data, updates every 5 seconds)
  ✅ Network Section: Upload/download speeds with file counts and GB pending
  ✅ Open iCloud Folder button
  ✅ Quit button
  
  The app automatically changes status every 10 seconds to demo the animation.
+ The syncing icon now uses SwiftUI's .symbolEffect(.rotate) for smooth rotation!
  
  TO USE IN REAL APP:
  Simply set syncStatus property based on actual iCloud sync state:
  
- // When files start syncing:
- syncStatus = .syncing
- 
- // When sync completes:
- syncStatus = .idle
- 
- // When sync error occurs:
- syncStatus = .error
- 
- NEXT STEPS FOR REAL IMPLEMENTATION:
- 
- 1. Access real iCloud Drive data:
-    - Use NSMetadataQuery to monitor iCloud files
-    - Track file download/upload status with NSMetadataItemDownloadingStatusKey
-    
- 2. Get actual network stats:
-    - Monitor NSMetadataQuery notifications for file transfers
-    - Calculate speeds based on file size changes over time
-    
- 3. Track recent files:
-    - Query NSMetadataQuery with date sorting
-    - Filter by NSMetadataItemFSContentChangeDateKey
-    
- 4. Enable iCloud capability:
-    - In Xcode: Target → Signing & Capabilities → + Capability → iCloud
-    - Enable "iCloud Documents"
-    
- 5. Add entitlements for iCloud access
- 
- The prototype shows the UI structure with mock data that updates periodically.
+ syncStatus = .syncing  // Smooth rotating animation
+ syncStatus = .idle     // Static cloud icon
+ syncStatus = .error    // Red error icon
  */
