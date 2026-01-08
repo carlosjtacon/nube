@@ -91,24 +91,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func checkICloudStatus() {
-        let task = Process()
-        task.launchPath = "/usr/bin/brctl"
-        task.arguments = ["status"]
-        
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
-        
-        task.launch()
-        
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        
-        if let output = String(data: data, encoding: .utf8) {
-            print("=== brctl status output ===")
-            print(output)
-            print("===========================")
-            parseICloudStatus(output)
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            let task = Process()
+            task.launchPath = "/usr/bin/brctl"
+            task.arguments = ["status"]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = pipe
+            
+            task.launch()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            
+            if let output = String(data: data, encoding: .utf8) {
+                print("=== brctl status output ===")
+                print(output)
+                print("===========================")
+                
+                DispatchQueue.main.async {
+                    self?.parseICloudStatus(output)
+                }
+            }
         }
     }
     
