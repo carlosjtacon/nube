@@ -26,12 +26,20 @@ struct StatusBarIconView: View {
     }
 }
 
+struct ICloudStatus {
+    var isActive: Bool = false
+    var recentFolders: [String] = []
+    var uploadingFiles: Int = 0
+    var downloadingFiles: Int = 0
+    var uploadPendingGB: Double = 0.0
+    var downloadPendingGB: Double = 0.0
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var hostingView: NSHostingView<StatusBarIconView>?
     
-    // Sync status
     enum SyncStatus {
         case idle
         case syncing
@@ -44,61 +52,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    // Mock data for prototype
-    var recentFiles = [
-        "Project Proposal.pdf",
-        "Meeting Notes.docx",
-        "Screenshot 2024.png",
-        "Budget 2024.xlsx",
-        "Presentation.key"
-    ]
-    
-    var uploadSpeed = "1.2 MB/s"
-    var downloadSpeed = "3.4 MB/s"
-    var uploadingFiles = 3
-    var downloadingFiles = 7
-    var uploadPending = 0.5 // GB
-    var downloadPending = 1.8 // GB
+    var iCloudStatus = ICloudStatus()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Create status bar item with fixed width for padding
         statusItem = NSStatusBar.system.statusItem(withLength: 18)
-        
-        // Set initial icon
         updateIcon()
-        
-        // Build the menu
         buildMenu()
         
-        // Update menu periodically (simulate real-time updates)
+        // Check status immediately
+        checkICloudStatus()
+        
+        // Update every 5 seconds
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.updateMockData()
-            self?.buildMenu()
-        }
-        
-        // Simulate status changes for demo purposes
-        Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.simulateStatusChange()
-        }
-        
-        // Start in syncing state for demo
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.syncStatus = .syncing
+            self?.checkICloudStatus()
         }
     }
     
     func updateIcon() {
         guard let button = statusItem.button else { return }
         
-        // Remove old hosting view if exists
         hostingView?.removeFromSuperview()
         
-        // Create SwiftUI hosting view with icon
         let iconView = StatusBarIconView(status: syncStatus)
         hostingView = NSHostingView(rootView: iconView)
         hostingView?.frame = NSRect(x: 0, y: 0, width: 18, height: 18)
         
-        // Add to button
         button.subviews.forEach { $0.removeFromSuperview() }
         if let hostingView = hostingView {
             button.addSubview(hostingView)
@@ -112,53 +90,161 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    func simulateStatusChange() {
-        // Randomly change status for demo
-        let statuses: [SyncStatus] = [.idle, .syncing, .syncing, .idle, .error]
-        syncStatus = statuses.randomElement()!
+    func checkICloudStatus() {
+        let task = Process()
+        task.launchPath = "/usr/bin/brctl"
+        task.arguments = ["status"]
         
-        print("Status changed to: \(syncStatus)")
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+        
+        task.launch()
+        
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        
+        if let output = String(data: data, encoding: .utf8) {
+            print("=== brctl status output ===")
+            print(output)
+            print("===========================")
+            parseICloudStatus(output)
+        }
+    }
+    
+    func parseICloudStatus(_ output: String) {
+        var newStatus = ICloudStatus()
+        var folderSet = Set<String>()
+        
+        let lines = output.components(separatedBy: "\n")
+        
+        var totalUploadBytes: Int64 = 0
+        var totalDownloadBytes: Int64 = 0
+        
+        for line in lines {
+            // Check for uploading files
+            if line.contains("up:needs-upload") || line.contains("up:[31mneeds-upload") {
+                newStatus.uploadingFiles += 1
+                
+                // Extract file size
+                if let sizeMatch = extractSize(from: line) {
+                    totalUploadBytes += sizeMatch
+                }
+            }
+            
+            // Check for downloading files
+            if line.contains("> downloader{") && line.contains("downloading:") {
+                newStatus.downloadingFiles += 1
+                
+                // Extract file size
+                if let sizeMatch = extractSize(from: line) {
+                    totalDownloadBytes += sizeMatch
+                }
+            }
+            
+            // Extract folder paths from "Under /path/to/folder"
+            if line.contains("Under /") {
+                if let folderPath = line.components(separatedBy: "Under ").last?.trimmingCharacters(in: .whitespaces) {
+                    // Get just the last component (folder name)
+                    let folderName = (folderPath as NSString).lastPathComponent
+                    folderSet.insert(folderName)
+                }
+            }
+        }
+        
+        newStatus.uploadPendingGB = Double(totalUploadBytes) / 1_000_000_000.0
+        newStatus.downloadPendingGB = Double(totalDownloadBytes) / 1_000_000_000.0
+        
+        // Check if there's activity
+        let hasActivity = output.contains("Client Truth Unclean Items:")
+        newStatus.isActive = hasActivity
+        
+        // Convert set to sorted array, limit to 5
+        newStatus.recentFolders = Array(folderSet.sorted().prefix(5))
+        
+        // Update sync status
+        if hasActivity {
+            syncStatus = .syncing
+        } else {
+            syncStatus = .idle
+        }
+        
+        iCloudStatus = newStatus
+        
+        print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
+        print("Folders: \(newStatus.recentFolders)")
+        
+        buildMenu()
+    }
+    
+    func extractSize(from line: String) -> Int64? {
+        // Match patterns like "sz:596.9 MB (596911389)" or "sz:2.6 MB (2621139)"
+        let pattern = "sz:[^(]+\\((\\d+)\\)"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        
+        let nsString = line as NSString
+        let results = regex.matches(in: line, range: NSRange(location: 0, length: nsString.length))
+        
+        if let match = results.first, match.numberOfRanges > 1 {
+            let sizeString = nsString.substring(with: match.range(at: 1))
+            return Int64(sizeString)
+        }
+        
+        return nil
     }
     
     func buildMenu() {
         let menu = NSMenu()
         
-        // === RECENTS SECTION ===
-        let recentsHeader = NSMenuItem(title: "Recent Files", action: nil, keyEquivalent: "")
-        recentsHeader.isEnabled = false
-        menu.addItem(recentsHeader)
-        
-        for (index, fileName) in recentFiles.enumerated() {
-            let fileItem = NSMenuItem(title: "  \(fileName)", action: #selector(openRecentFile(_:)), keyEquivalent: "")
-            fileItem.tag = index
-            fileItem.target = self
-            menu.addItem(fileItem)
+        // === RECENT FOLDERS SECTION ===
+        if !iCloudStatus.recentFolders.isEmpty {
+            let foldersHeader = NSMenuItem(title: "Active Folders", action: nil, keyEquivalent: "")
+            foldersHeader.isEnabled = false
+            menu.addItem(foldersHeader)
+            
+            for folder in iCloudStatus.recentFolders {
+                let folderItem = NSMenuItem(title: "  \(folder)", action: nil, keyEquivalent: "")
+                folderItem.isEnabled = false
+                menu.addItem(folderItem)
+            }
+            
+            menu.addItem(NSMenuItem.separator())
         }
         
-        menu.addItem(NSMenuItem.separator())
-        
         // === NETWORK SECTION ===
-        let networkHeader = NSMenuItem(title: "Network Activity", action: nil, keyEquivalent: "")
+        let networkHeader = NSMenuItem(title: "Sync Activity", action: nil, keyEquivalent: "")
         networkHeader.isEnabled = false
         menu.addItem(networkHeader)
         
         // Upload item
-        let uploadItem = NSMenuItem(title: "  ↑ Upload: \(uploadSpeed)", action: nil, keyEquivalent: "")
-        uploadItem.isEnabled = false
-        menu.addItem(uploadItem)
-        
-        let uploadDetails = NSMenuItem(title: "     \(uploadingFiles) files • \(String(format: "%.1f", uploadPending)) GB pending", action: nil, keyEquivalent: "")
-        uploadDetails.isEnabled = false
-        menu.addItem(uploadDetails)
+        if iCloudStatus.uploadingFiles > 0 {
+            let uploadItem = NSMenuItem(title: "  ↑ Uploading", action: nil, keyEquivalent: "")
+            uploadItem.isEnabled = false
+            menu.addItem(uploadItem)
+            
+            let uploadDetails = NSMenuItem(title: "     \(iCloudStatus.uploadingFiles) files • \(String(format: "%.2f", iCloudStatus.uploadPendingGB)) GB", action: nil, keyEquivalent: "")
+            uploadDetails.isEnabled = false
+            menu.addItem(uploadDetails)
+        } else {
+            let uploadItem = NSMenuItem(title: "  ↑ No uploads", action: nil, keyEquivalent: "")
+            uploadItem.isEnabled = false
+            menu.addItem(uploadItem)
+        }
         
         // Download item
-        let downloadItem = NSMenuItem(title: "  ↓ Download: \(downloadSpeed)", action: nil, keyEquivalent: "")
-        downloadItem.isEnabled = false
-        menu.addItem(downloadItem)
-        
-        let downloadDetails = NSMenuItem(title: "     \(downloadingFiles) files • \(String(format: "%.1f", downloadPending)) GB pending", action: nil, keyEquivalent: "")
-        downloadDetails.isEnabled = false
-        menu.addItem(downloadDetails)
+        if iCloudStatus.downloadingFiles > 0 {
+            let downloadItem = NSMenuItem(title: "  ↓ Downloading", action: nil, keyEquivalent: "")
+            downloadItem.isEnabled = false
+            menu.addItem(downloadItem)
+            
+            let downloadDetails = NSMenuItem(title: "     \(iCloudStatus.downloadingFiles) files • \(String(format: "%.2f", iCloudStatus.downloadPendingGB)) GB", action: nil, keyEquivalent: "")
+            downloadDetails.isEnabled = false
+            menu.addItem(downloadDetails)
+        } else {
+            let downloadItem = NSMenuItem(title: "  ↓ No downloads", action: nil, keyEquivalent: "")
+            downloadItem.isEnabled = false
+            menu.addItem(downloadItem)
+        }
         
         menu.addItem(NSMenuItem.separator())
         
@@ -175,19 +261,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
     
-    @objc func openRecentFile(_ sender: NSMenuItem) {
-        let fileName = recentFiles[sender.tag]
-        let alert = NSAlert()
-        alert.messageText = "Open Recent File"
-        alert.informativeText = "Would open: \(fileName)"
-        alert.runModal()
-        
-        // In real implementation, you would:
-        // NSWorkspace.shared.open(fileURL)
-    }
-    
     @objc func openICloudFolder() {
-        // Open the iCloud Drive folder in Finder
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         let iCloudPath = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         
@@ -200,32 +274,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.runModal()
         }
     }
-    
-    // Simulate changing data for prototype
-    func updateMockData() {
-        // Randomize speeds
-        uploadSpeed = String(format: "%.1f MB/s", Double.random(in: 0.1...5.0))
-        downloadSpeed = String(format: "%.1f MB/s", Double.random(in: 0.1...8.0))
-        
-        // Randomize pending counts
-        uploadingFiles = Int.random(in: 0...10)
-        downloadingFiles = Int.random(in: 0...15)
-        uploadPending = Double.random(in: 0...3.0)
-        downloadPending = Double.random(in: 0...5.0)
-        
-        // Rotate recent files (simulate new files)
-        if Bool.random() {
-            let newFiles = [
-                "Document \(Int.random(in: 1...100)).pdf",
-                "Image \(Int.random(in: 1...100)).jpg",
-                "Data \(Int.random(in: 1...100)).csv"
-            ]
-            recentFiles.removeLast()
-            recentFiles.insert(newFiles.randomElement()!, at: 0)
-        }
-        
-        print("Updated mock data - Upload: \(uploadSpeed), Download: \(downloadSpeed)")
-    }
 }
 
 let app = NSApplication.shared
@@ -234,24 +282,21 @@ app.delegate = delegate
 app.run()
 
 /*
- PROTOTYPE FEATURES:
+ REAL IMPLEMENTATION with brctl:
  
- ✅ Dynamic icon with SwiftUI symbol effects:
-    - Idle: Static cloud icon (bold)
-    - Syncing: Rotating sync arrows with smooth animation
-    - Error: Red cloud with slash (bold)
- ✅ Recents Section: 5 recent files (mock data, updates every 5 seconds)
- ✅ Network Section: Upload/download speeds with file counts and GB pending
- ✅ Open iCloud Folder button
- ✅ Quit button
+ ✅ Parses actual brctl status output
+ ✅ Detects uploading files (up:needs-upload)
+ ✅ Detects downloading files (> downloader{...})
+ ✅ Extracts file sizes and calculates GB pending
+ ✅ Shows active folders (from "Under /path" lines)
+ ✅ Dynamic icon animation when syncing
+ ✅ Detailed logging to Console for debugging
  
- The app automatically changes status every 10 seconds to demo the animation.
- The syncing icon now uses SwiftUI's .symbolEffect(.rotate) for smooth rotation!
+ To debug:
+ 1. Run the app
+ 2. Open Console.app (or Xcode console)
+ 3. Look for "=== brctl status output ===" logs
+ 4. Check parsed values below each log
  
- TO USE IN REAL APP:
- Simply set syncStatus property based on actual iCloud sync state:
- 
- syncStatus = .syncing  // Smooth rotating animation
- syncStatus = .idle     // Static cloud icon
- syncStatus = .error    // Red error icon
+ The app updates every 5 seconds by running `brctl status`.
  */
