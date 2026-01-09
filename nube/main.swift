@@ -115,7 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             let task = Process()
             task.launchPath = "/usr/bin/brctl"
-            task.arguments = ["status"]
+            task.arguments = ["status", "com.apple.CloudDocs"]
             
             let pipe = Pipe()
             task.standardOutput = pipe
@@ -131,7 +131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
                     print("=== brctl status output #\(currentExecution) at \(timestamp) ===")
                     print(output)
-                    print("=" + String(repeating: "=", count: 60))
+                    print("= #\(currentExecution) at \(timestamp) " + String(repeating: "=", count: 60))
                 }
                 
                 DispatchQueue.main.async {
@@ -257,7 +257,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // === RECENT FOLDERS SECTION ===
         if !iCloudStatus.recentFolders.isEmpty {
-            let foldersHeader = NSMenuItem(title: "Active Folders", action: nil, keyEquivalent: "")
+            let foldersHeader = NSMenuItem(title: "Recent Folders", action: nil, keyEquivalent: "")
             foldersHeader.isEnabled = false
             menu.addItem(foldersHeader)
             
