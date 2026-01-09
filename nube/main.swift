@@ -38,8 +38,8 @@ struct ICloudStatus {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
-    var timer: Timer?
     var hostingView: NSHostingView<StatusBarIconView>?
+    var isCheckingStatus = false
     
     enum SyncStatus {
         case idle
@@ -60,11 +60,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateIcon()
         buildMenu()
         
-        // Check status immediately
-        checkICloudStatus()
-        
-        // Update every 5 seconds
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        // Start the continuous check loop
+        scheduleNextCheck()
+    }
+    
+    func scheduleNextCheck() {
+        // Wait 5 seconds, then check status
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             self?.checkICloudStatus()
         }
     }
@@ -92,6 +94,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func checkICloudStatus() {
+        guard !isCheckingStatus else {
+            print("Already checking status, skipping...")
+            scheduleNextCheck()
+            return
+        }
+        
+        isCheckingStatus = true
+        
         DispatchQueue.global(qos: .background).async { [weak self] in
             let task = Process()
             task.launchPath = "/usr/bin/brctl"
@@ -113,6 +123,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 
                 DispatchQueue.main.async {
                     self?.parseICloudStatus(output)
+                    self?.isCheckingStatus = false
+                    
+                    // Schedule the next check after this one completes
+                    self?.scheduleNextCheck()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self?.isCheckingStatus = false
+                    self?.scheduleNextCheck()
                 }
             }
         }
