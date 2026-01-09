@@ -29,6 +29,7 @@ struct StatusBarIconView: View {
 struct ICloudStatus {
     var isActive: Bool = false
     var recentFolders: [String] = []
+    var folderPaths: [String: String] = [:] // folder name -> full path
     var uploadingFiles: Int = 0
     var downloadingFiles: Int = 0
     var uploadPendingGB: Double = 0.0
@@ -120,41 +121,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func parseICloudStatus(_ output: String) {
         var newStatus = ICloudStatus()
         var folderSet = Set<String>()
+        var folderPathMap: [String: String] = [:]
         
         let lines = output.components(separatedBy: "\n")
         
         var totalUploadBytes: Int64 = 0
         var totalDownloadBytes: Int64 = 0
         
+        var currentFolder: String? = nil
+        var previousLine = ""
+        
         for line in lines {
+            // Track current folder
+            if line.contains("Under /") {
+                if let folderPath = line.components(separatedBy: "Under ").last?.trimmingCharacters(in: .whitespaces) {
+                    currentFolder = folderPath
+                }
+            }
+            
+            // Skip trash items
+            if let folder = currentFolder, folder.hasPrefix("/.Trash") {
+                previousLine = line
+                continue
+            }
+            
             // Check for uploading files
-            if line.contains("up:needs-upload") || line.contains("up:[31mneeds-upload") {
+            if line.contains("> upload{") {
                 newStatus.uploadingFiles += 1
                 
-                // Extract file size
-                if let sizeMatch = extractSize(from: line) {
+                // Extract size from previous line
+                if let sizeMatch = extractSize(from: previousLine) {
                     totalUploadBytes += sizeMatch
                 }
             }
             
             // Check for downloading files
-            if line.contains("> downloader{") && line.contains("downloading:") {
+            if line.contains("> downloader{") {
                 newStatus.downloadingFiles += 1
                 
-                // Extract file size
-                if let sizeMatch = extractSize(from: line) {
+                // Extract size from previous line
+                if let sizeMatch = extractSize(from: previousLine) {
                     totalDownloadBytes += sizeMatch
                 }
             }
             
-            // Extract folder paths from "Under /path/to/folder"
-            if line.contains("Under /") {
-                if let folderPath = line.components(separatedBy: "Under ").last?.trimmingCharacters(in: .whitespaces) {
-                    // Get just the last component (folder name)
-                    let folderName = (folderPath as NSString).lastPathComponent
-                    folderSet.insert(folderName)
-                }
+            // Add folder to set (excluding trash)
+            if let folder = currentFolder, !folder.hasPrefix("/.Trash") {
+                let folderName = (folder as NSString).lastPathComponent
+                folderSet.insert(folderName)
+                folderPathMap[folderName] = folder
             }
+            
+            previousLine = line
         }
         
         newStatus.uploadPendingGB = Double(totalUploadBytes) / 1_000_000_000.0
@@ -166,6 +184,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Convert set to sorted array, limit to 5
         newStatus.recentFolders = Array(folderSet.sorted().prefix(5))
+        newStatus.folderPaths = folderPathMap
         
         // Update sync status
         if hasActivity {
@@ -177,6 +196,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         iCloudStatus = newStatus
         
         print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
+        print("Upload GB: \(newStatus.uploadPendingGB), Download GB: \(newStatus.downloadPendingGB)")
         print("Folders: \(newStatus.recentFolders)")
         
         buildMenu()
@@ -207,9 +227,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             foldersHeader.isEnabled = false
             menu.addItem(foldersHeader)
             
-            for folder in iCloudStatus.recentFolders {
-                let folderItem = NSMenuItem(title: "  \(folder)", action: nil, keyEquivalent: "")
-                folderItem.isEnabled = false
+            for (index, folder) in iCloudStatus.recentFolders.enumerated() {
+                let folderItem = NSMenuItem(title: "  \(folder)", action: #selector(openFolder(_:)), keyEquivalent: "")
+                folderItem.tag = index
+                folderItem.target = self
                 menu.addItem(folderItem)
             }
             
@@ -264,6 +285,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
         
         statusItem.menu = menu
+    }
+    
+    @objc func openFolder(_ sender: NSMenuItem) {
+        let folderName = iCloudStatus.recentFolders[sender.tag]
+        
+        // Get the full path from the map
+        guard let relativePath = iCloudStatus.folderPaths[folderName] else {
+            print("Could not find path for folder: \(folderName)")
+            return
+        }
+        
+        // Build full iCloud path
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let iCloudBase = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        let fullPath = iCloudBase.appendingPathComponent(relativePath)
+        
+        print("Opening folder: \(fullPath.path)")
+        
+        if FileManager.default.fileExists(atPath: fullPath.path) {
+            NSWorkspace.shared.open(fullPath)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Folder Not Found"
+            alert.informativeText = "Could not locate folder: \(folderName)"
+            alert.runModal()
+        }
     }
     
     @objc func openICloudFolder() {
