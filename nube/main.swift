@@ -41,6 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hostingView: NSHostingView<StatusBarIconView>?
     var isCheckingStatus = false
     
+    // Logging configuration
+    let LOGGING_ENABLED = true
+    var executionCounter = 0
+    
     enum SyncStatus {
         case idle
         case syncing
@@ -95,14 +99,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func checkICloudStatus() {
         guard !isCheckingStatus else {
-            print("Already checking status, skipping...")
+            if LOGGING_ENABLED {
+                print("Already checking status, skipping...")
+            }
             scheduleNextCheck()
             return
         }
         
         isCheckingStatus = true
+        executionCounter += 1
+        let currentExecution = executionCounter
         
         DispatchQueue.global(qos: .background).async { [weak self] in
+            guard let self = self else { return }
+            
             let task = Process()
             task.launchPath = "/usr/bin/brctl"
             task.arguments = ["status"]
@@ -117,21 +127,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             task.waitUntilExit()
             
             if let output = String(data: data, encoding: .utf8) {
-                print("=== brctl status output ===")
-                print(output)
-                print("===========================")
+                if self.LOGGING_ENABLED {
+                    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+                    print("=== brctl status output #\(currentExecution) at \(timestamp) ===")
+                    print(output)
+                    print("=" + String(repeating: "=", count: 60))
+                }
                 
                 DispatchQueue.main.async {
-                    self?.parseICloudStatus(output)
-                    self?.isCheckingStatus = false
+                    self.parseICloudStatus(output)
+                    self.isCheckingStatus = false
                     
                     // Schedule the next check after this one completes
-                    self?.scheduleNextCheck()
+                    self.scheduleNextCheck()
                 }
             } else {
                 DispatchQueue.main.async {
-                    self?.isCheckingStatus = false
-                    self?.scheduleNextCheck()
+                    self.isCheckingStatus = false
+                    self.scheduleNextCheck()
                 }
             }
         }
@@ -214,9 +227,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         iCloudStatus = newStatus
         
-        print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
-        print("Upload GB: \(newStatus.uploadPendingGB), Download GB: \(newStatus.downloadPendingGB)")
-        print("Folders: \(newStatus.recentFolders)")
+        if LOGGING_ENABLED {
+            print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
+            print("Upload GB: \(newStatus.uploadPendingGB), Download GB: \(newStatus.downloadPendingGB)")
+            print("Folders: \(newStatus.recentFolders)")
+        }
         
         buildMenu()
     }
@@ -311,7 +326,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Get the full path from the map
         guard let relativePath = iCloudStatus.folderPaths[folderName] else {
-            print("Could not find path for folder: \(folderName)")
+            if LOGGING_ENABLED {
+                print("Could not find path for folder: \(folderName)")
+            }
             return
         }
         
@@ -320,7 +337,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let iCloudBase = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         let fullPath = iCloudBase.appendingPathComponent(relativePath)
         
-        print("Opening folder: \(fullPath.path)")
+        if LOGGING_ENABLED {
+            print("Opening folder: \(fullPath.path)")
+        }
         
         if FileManager.default.fileExists(atPath: fullPath.path) {
             NSWorkspace.shared.open(fullPath)
