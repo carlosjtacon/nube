@@ -42,7 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var isCheckingStatus = false
     
     // Logging configuration
-    let LOGGING_ENABLED = true
+    let LOGGING_ENABLED = false
     var executionCounter = 0
     
     enum SyncStatus {
