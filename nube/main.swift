@@ -282,6 +282,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
         
+        // === BOOKMARKS SECTION ===
+        let bookmarksHeader = NSMenuItem(title: "Bookmarks", action: nil, keyEquivalent: "")
+        bookmarksHeader.isEnabled = false
+        menu.addItem(bookmarksHeader)
+        
+        for (index, bookmark) in folderBookmarks.enumerated() {
+            let bookmarkItem = NSMenuItem(title: "  \(bookmark.name)", action: #selector(openBookmark(_:)), keyEquivalent: "")
+            bookmarkItem.tag = index
+            bookmarkItem.target = self
+            menu.addItem(bookmarkItem)
+        }
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // === NETWORK SECTION ===
         let networkHeader = NSMenuItem(title: "Sync Activity", action: nil, keyEquivalent: "")
         networkHeader.isEnabled = false
@@ -319,21 +333,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        // === ACTION BUTTONS ===
-        let openFolderItem = NSMenuItem(title: "Open iCloud Drive Folder", action: #selector(openICloudFolder), keyEquivalent: "o")
+        // === OPEN ICLOUD DRIVE ===
+        let openFolderItem = NSMenuItem(title: "Open iCloud Drive", action: #selector(openICloudFolder), keyEquivalent: "o")
         openFolderItem.target = self
         menu.addItem(openFolderItem)
         
-        // Add bookmarks
-        for (index, bookmark) in folderBookmarks.enumerated() {
-            let bookmarkItem = NSMenuItem(title: "Open \(bookmark.name)", action: #selector(openBookmark(_:)), keyEquivalent: "")
-            bookmarkItem.tag = index
-            bookmarkItem.target = self
-            menu.addItem(bookmarkItem)
-        }
-        
         menu.addItem(NSMenuItem.separator())
         
+        // === QUIT ===
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quitItem)
         
