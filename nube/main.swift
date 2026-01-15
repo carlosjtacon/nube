@@ -45,6 +45,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let LOGGING_ENABLED = false
     var executionCounter = 0
     
+    // Folder bookmarks
+    let folderBookmarks: [(name: String, path: String)] = [
+        ("Inbox", "Cloud/_inbox"),
+        ("Media", "Cloud/media"),
+        ("Documents", "Cloud/documents"),
+        ("Photos", "Cloud/photos")
+    ]
+    
     enum SyncStatus {
         case idle
         case syncing
@@ -316,6 +324,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         openFolderItem.target = self
         menu.addItem(openFolderItem)
         
+        // Add bookmarks
+        for (index, bookmark) in folderBookmarks.enumerated() {
+            let bookmarkItem = NSMenuItem(title: "Open \(bookmark.name)", action: #selector(openBookmark(_:)), keyEquivalent: "")
+            bookmarkItem.tag = index
+            bookmarkItem.target = self
+            menu.addItem(bookmarkItem)
+        }
+        
         menu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -350,6 +366,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let alert = NSAlert()
             alert.messageText = "Folder Not Found"
             alert.informativeText = "Could not locate folder: \(folderName)"
+            alert.runModal()
+        }
+    }
+    
+    @objc func openBookmark(_ sender: NSMenuItem) {
+        let bookmark = folderBookmarks[sender.tag]
+        
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let iCloudBase = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        let fullPath = iCloudBase.appendingPathComponent(bookmark.path)
+        
+        if LOGGING_ENABLED {
+            print("Opening bookmark '\(bookmark.name)': \(fullPath.path)")
+        }
+        
+        if FileManager.default.fileExists(atPath: fullPath.path) {
+            NSWorkspace.shared.open(fullPath)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Bookmark Folder Not Found"
+            alert.informativeText = "Could not locate folder: \(bookmark.name)\nPath: \(bookmark.path)"
             alert.runModal()
         }
     }
