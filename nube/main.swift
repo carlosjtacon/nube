@@ -151,9 +151,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func parseICloudStatus(_ output: String) {
-        var newStatus = ICloudStatus()
-        var folderSet = Set<String>()
-        var folderPathMap: [String: String] = [:]
+        var newStatus = iCloudStatus // Start with existing status
+        var folderSet = Set<String>(iCloudStatus.recentFolders) // Keep existing folders
         
         let lines = output.components(separatedBy: "\n")
         
@@ -162,6 +161,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         var currentFolder: String? = nil
         var previousLine = ""
+        
+        // Reset counters for this check
+        newStatus.uploadingFiles = 0
+        newStatus.downloadingFiles = 0
         
         for line in lines {
             // Track current folder
@@ -201,7 +204,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let folder = currentFolder, !folder.hasPrefix("/.Trash") {
                 let folderName = (folder as NSString).lastPathComponent
                 folderSet.insert(folderName)
-                folderPathMap[folderName] = folder
+                newStatus.folderPaths[folderName] = folder
             }
             
             previousLine = line
@@ -214,9 +217,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hasActivity = output.contains("Client Truth Unclean Items:")
         newStatus.isActive = hasActivity
         
-        // Convert set to sorted array, limit to 5
-        newStatus.recentFolders = Array(folderSet.sorted().prefix(5))
-        newStatus.folderPaths = folderPathMap
+        // Update recent folders list - keep most recent 5, prioritizing newest
+        let sortedFolders = Array(folderSet.sorted())
+        newStatus.recentFolders = Array(sortedFolders.suffix(5))
         
         // Update sync status
         if hasActivity {
