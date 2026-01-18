@@ -30,6 +30,7 @@ struct ICloudStatus {
     var isActive: Bool = false
     var recentFolders: [String] = []
     var folderPaths: [String: String] = [:] // folder name -> full path
+    var folderTimestamps: [String: Date] = [:] // folder name -> last seen time
     var uploadingFiles: Int = 0
     var downloadingFiles: Int = 0
     var uploadPendingGB: Double = 0.0
@@ -160,15 +161,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func parseICloudStatus(_ output: String) {
         var newStatus = iCloudStatus // Start with existing status
-        var folderSet = Set<String>(iCloudStatus.recentFolders) // Keep existing folders
         
         let lines = output.components(separatedBy: "\n")
+        let currentTime = Date()
+        let expirationTime: TimeInterval = 30 * 60 // 30 minutes in seconds
         
         var totalUploadBytes: Int64 = 0
         var totalDownloadBytes: Int64 = 0
         
         var currentFolder: String? = nil
         var previousLine = ""
+        var activeFoldersInThisCheck = Set<String>()
         
         // Reset counters for this check
         newStatus.uploadingFiles = 0
@@ -208,11 +211,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             
-            // Add folder to set (excluding trash)
+            // Add folder to active set (excluding trash)
             if let folder = currentFolder, !folder.hasPrefix("/.Trash") {
                 let folderName = (folder as NSString).lastPathComponent
-                folderSet.insert(folderName)
+                activeFoldersInThisCheck.insert(folderName)
                 newStatus.folderPaths[folderName] = folder
+                newStatus.folderTimestamps[folderName] = currentTime
             }
             
             previousLine = line
@@ -225,9 +229,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hasActivity = output.contains("Client Truth Unclean Items:")
         newStatus.isActive = hasActivity
         
-        // Update recent folders list - keep most recent 5, prioritizing newest
-        let sortedFolders = Array(folderSet.sorted())
-        newStatus.recentFolders = Array(sortedFolders.suffix(5))
+        // Remove expired folders (older than 30 minutes)
+        let expiredFolders = newStatus.folderTimestamps.filter { folderName, timestamp in
+            currentTime.timeIntervalSince(timestamp) > expirationTime
+        }.map { $0.key }
+        
+        for folder in expiredFolders {
+            newStatus.folderTimestamps.removeValue(forKey: folder)
+            newStatus.folderPaths.removeValue(forKey: folder)
+        }
+        
+        // Build recent folders list - sort by timestamp (most recent first), limit to 5
+        newStatus.recentFolders = newStatus.folderTimestamps
+            .sorted { $0.value > $1.value } // Sort by timestamp, newest first
+            .prefix(5)
+            .map { $0.key }
         
         // Update sync status
         if hasActivity {
