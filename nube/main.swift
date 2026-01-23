@@ -37,10 +37,15 @@ struct ICloudStatus {
     var downloadPendingGB: Double = 0.0
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var hostingView: NSHostingView<StatusBarIconView>?
     var isCheckingStatus = false
+    var currentCheckInterval: TimeInterval = 5.0 // Start with fast polling
+    
+    // Polling intervals
+    let FAST_POLL_INTERVAL: TimeInterval = 5.0  // When syncing
+    let SLOW_POLL_INTERVAL: TimeInterval = 40.0 // When idle
     
     // Logging configuration
     let LOGGING_ENABLED = false
@@ -70,6 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: 18)
+        
         updateIcon()
         buildMenu()
         
@@ -77,9 +83,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleNextCheck()
     }
     
+    // NSMenuDelegate method - called when menu is about to open
+    func menuWillOpen(_ menu: NSMenu) {
+        if LOGGING_ENABLED {
+            print("📱 Menu opened - triggering manual check")
+        }
+        
+        // Trigger an immediate check when menu is opened
+        if !isCheckingStatus {
+            if LOGGING_ENABLED {
+                print("✅ Starting manual check...")
+            }
+            checkICloudStatus()
+        } else {
+            if LOGGING_ENABLED {
+                print("⚠️ Check already in progress, skipping manual trigger")
+            }
+        }
+    }
+    
     func scheduleNextCheck() {
-        // Wait 5 seconds, then check status
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+        // Use current interval (fast when syncing, slow when idle)
+        DispatchQueue.main.asyncAfter(deadline: .now() + currentCheckInterval) { [weak self] in
             self?.checkICloudStatus()
         }
     }
@@ -109,7 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func checkICloudStatus() {
         guard !isCheckingStatus else {
             if LOGGING_ENABLED {
-                print("Already checking status, skipping...")
+                print("⏭️ Already checking status, skipping...")
             }
             scheduleNextCheck()
             return
@@ -118,6 +143,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isCheckingStatus = true
         executionCounter += 1
         let currentExecution = executionCounter
+        
+        if LOGGING_ENABLED {
+            print("🔄 Starting check #\(currentExecution)")
+        }
         
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self = self else { return }
@@ -245,11 +274,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .prefix(5)
             .map { $0.key }
         
-        // Update sync status
+        // Update sync status and adjust polling interval
         if hasActivity {
             syncStatus = .syncing
+            currentCheckInterval = FAST_POLL_INTERVAL // Poll every 5 seconds when active
         } else {
             syncStatus = .idle
+            currentCheckInterval = SLOW_POLL_INTERVAL // Poll every 40 seconds when idle
         }
         
         iCloudStatus = newStatus
@@ -258,6 +289,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
             print("Upload GB: \(newStatus.uploadPendingGB), Download GB: \(newStatus.downloadPendingGB)")
             print("Folders: \(newStatus.recentFolders)")
+            print("Next check in: \(currentCheckInterval)s")
         }
         
         buildMenu()
@@ -281,6 +313,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func buildMenu() {
         let menu = NSMenu()
+        menu.delegate = self // Set delegate to receive menuWillOpen callback
         
         // === RECENT FOLDERS SECTION ===
         if !iCloudStatus.recentFolders.isEmpty {
