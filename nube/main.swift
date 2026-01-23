@@ -45,7 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     
     // Polling intervals
     let FAST_POLL_INTERVAL: TimeInterval = 5.0  // When syncing
-    let SLOW_POLL_INTERVAL: TimeInterval = 40.0 // When idle
+    let SLOW_POLL_INTERVAL: TimeInterval = 60.0 // When idle
     
     // Logging configuration
     let LOGGING_ENABLED = false
