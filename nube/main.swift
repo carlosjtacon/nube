@@ -11,6 +11,9 @@ struct StatusBarIconView: View {
             case .idle:
                 Image(systemName: "icloud.fill")
                     .symbolRenderingMode(.monochrome)
+            case .checking:
+                Image(systemName: "bolt.horizontal.icloud.fill")
+                    .symbolRenderingMode(.monochrome)
             case .syncing:
                 Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90.icloud.fill")
                     .symbolRenderingMode(.monochrome)
@@ -62,6 +65,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     enum SyncStatus {
         case idle
         case syncing
+        case checking // New state for when checking status while idle
         case error
     }
     
@@ -140,6 +144,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         
+        // Show checking icon only if currently idle
+        let wasIdle = (syncStatus == .idle)
+        if wasIdle {
+            syncStatus = .checking
+        }
+        
         isCheckingStatus = true
         executionCounter += 1
         let currentExecution = executionCounter
@@ -169,7 +179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
                     print("=== brctl status output #\(currentExecution) at \(timestamp) ===")
                     print(output)
-                    print("= #\(currentExecution) at \(timestamp) " + String(repeating: "=", count: 60))
+                    print("=" + String(repeating: "=", count: 60))
                 }
                 
                 DispatchQueue.main.async {
@@ -280,7 +290,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             currentCheckInterval = FAST_POLL_INTERVAL // Poll every 5 seconds when active
         } else {
             syncStatus = .idle
-            currentCheckInterval = SLOW_POLL_INTERVAL // Poll every 40 seconds when idle
+            currentCheckInterval = SLOW_POLL_INTERVAL // Poll every 60 seconds when idle
         }
         
         iCloudStatus = newStatus
@@ -468,21 +478,17 @@ app.delegate = delegate
 app.run()
 
 /*
- REAL IMPLEMENTATION with brctl:
+ iCloud Drive Monitor - Complete Features:
  
- ✅ Parses actual brctl status output
- ✅ Detects uploading files (up:needs-upload)
- ✅ Detects downloading files (> downloader{...})
- ✅ Extracts file sizes and calculates GB pending
- ✅ Shows active folders (from "Under /path" lines)
- ✅ Dynamic icon animation when syncing
- ✅ Detailed logging to Console for debugging
+ ✅ Real-time iCloud sync monitoring via brctl
+ ✅ Adaptive polling (5s when syncing, 60s when idle)
+ ✅ Manual refresh on menu open
+ ✅ Recent folders (last 5, expires after 30 min)
+ ✅ Quick bookmark shortcuts
+ ✅ Upload/download activity tracking
+ ✅ Animated menu bar icon
+ ✅ Energy efficient
+ ✅ Production ready (logging disabled)
  
- To debug:
- 1. Run the app
- 2. Open Console.app (or Xcode console)
- 3. Look for "=== brctl status output ===" logs
- 4. Check parsed values below each log
- 
- The app updates every 5 seconds by running `brctl status`.
+ To enable debug logging: Set LOGGING_ENABLED = true
  */
