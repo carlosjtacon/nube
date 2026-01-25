@@ -18,6 +18,9 @@ struct StatusBarIconView: View {
                 Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90.icloud.fill")
                     .symbolRenderingMode(.monochrome)
                     .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
+            case .paused:
+                Image(systemName: "icloud.slash.fill")
+                    .symbolRenderingMode(.hierarchical)
             case .error:
                 Image(systemName: "icloud.slash.fill")
                     .symbolRenderingMode(.monochrome)
@@ -45,6 +48,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var hostingView: NSHostingView<StatusBarIconView>?
     var isCheckingStatus = false
     var currentCheckInterval: TimeInterval = 5.0 // Start with fast polling
+    var isPaused = false // Monitoring pause state
+    var lastCheckTime: Date? // Track last successful check
     
     // Polling intervals
     let FAST_POLL_INTERVAL: TimeInterval = 5.0  // When syncing
@@ -66,6 +71,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case idle
         case syncing
         case checking // New state for when checking status while idle
+        case paused // Paused monitoring
         case error
     }
     
@@ -93,12 +99,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("📱 Menu opened - triggering manual check")
         }
         
-        // Trigger an immediate check when menu is opened
-        if !isCheckingStatus {
+        // Trigger an immediate check when menu is opened (only if not paused)
+        if !isCheckingStatus && !isPaused {
             if LOGGING_ENABLED {
                 print("✅ Starting manual check...")
             }
             checkICloudStatus()
+        } else if isPaused {
+            if LOGGING_ENABLED {
+                print("⏸️ Monitoring paused, skipping check")
+            }
         } else {
             if LOGGING_ENABLED {
                 print("⚠️ Check already in progress, skipping manual trigger")
@@ -107,6 +117,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func scheduleNextCheck() {
+        // Don't schedule if paused
+        if isPaused {
+            if LOGGING_ENABLED {
+                print("⏸️ Monitoring paused, not scheduling next check")
+            }
+            return
+        }
+        
         // Use current interval (fast when syncing, slow when idle)
         DispatchQueue.main.asyncAfter(deadline: .now() + currentCheckInterval) { [weak self] in
             self?.checkICloudStatus()
@@ -185,6 +203,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async {
                     self.parseICloudStatus(output)
                     self.isCheckingStatus = false
+                    self.lastCheckTime = Date() // Record successful check time
                     
                     // Schedule the next check after this one completes
                     self.scheduleNextCheck()
@@ -360,6 +379,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         networkHeader.isEnabled = false
         menu.addItem(networkHeader)
         
+        // Last check time
+        if let lastCheck = lastCheckTime {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .full
+            let timeAgo = formatter.localizedString(for: lastCheck, relativeTo: Date())
+            let lastCheckItem = NSMenuItem(title: "  Last checked: \(timeAgo)", action: nil, keyEquivalent: "")
+            lastCheckItem.isEnabled = false
+            menu.addItem(lastCheckItem)
+        }
+        
         // Upload item
         if iCloudStatus.uploadingFiles > 0 {
             let uploadItem = NSMenuItem(title: "  ↑ Uploading", action: nil, keyEquivalent: "")
@@ -396,6 +425,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let openFolderItem = NSMenuItem(title: "Open iCloud Drive", action: #selector(openICloudFolder), keyEquivalent: "o")
         openFolderItem.target = self
         menu.addItem(openFolderItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // === PAUSE/RESUME ===
+        let pauseResumeItem = NSMenuItem(
+            title: isPaused ? "Resume Monitoring" : "Pause Monitoring",
+            action: #selector(togglePauseResume),
+            keyEquivalent: "p"
+        )
+        pauseResumeItem.target = self
+        menu.addItem(pauseResumeItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -455,6 +495,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.informativeText = "Could not locate folder: \(bookmark.name)\nPath: \(bookmark.path)"
             alert.runModal()
         }
+    }
+    
+    @objc func togglePauseResume() {
+        isPaused.toggle()
+        
+        if isPaused {
+            syncStatus = .paused
+            if LOGGING_ENABLED {
+                print("⏸️ Monitoring paused")
+            }
+        } else {
+            // Resume monitoring
+            syncStatus = .idle
+            if LOGGING_ENABLED {
+                print("▶️ Monitoring resumed")
+            }
+            // Trigger immediate check when resuming
+            checkICloudStatus()
+        }
+        
+        buildMenu()
     }
     
     @objc func openICloudFolder() {
