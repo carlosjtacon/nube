@@ -50,7 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let FAST_POLL_INTERVAL: TimeInterval = 5.0  // When syncing
     
     // Logging configuration
-    let LOGGING_ENABLED = true
+    let LOGGING_ENABLED = false
     var executionCounter = 0
     
     // Folder bookmarks
