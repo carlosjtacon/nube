@@ -18,9 +18,6 @@ struct StatusBarIconView: View {
                 Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90.icloud.fill")
                     .symbolRenderingMode(.monochrome)
                     .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-            case .paused:
-                Image(systemName: "icloud.slash.fill")
-                    .symbolRenderingMode(.hierarchical)
             case .error:
                 Image(systemName: "icloud.slash.fill")
                     .symbolRenderingMode(.monochrome)
@@ -47,16 +44,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var hostingView: NSHostingView<StatusBarIconView>?
     var isCheckingStatus = false
-    var currentCheckInterval: TimeInterval = 5.0 // Start with fast polling
-    var isPaused = false // Monitoring pause state
     var lastCheckTime: Date? // Track last successful check
     
-    // Polling intervals
+    // Polling interval
     let FAST_POLL_INTERVAL: TimeInterval = 5.0  // When syncing
-    let SLOW_POLL_INTERVAL: TimeInterval = 60.0 // When idle
     
     // Logging configuration
-    let LOGGING_ENABLED = false
+    let LOGGING_ENABLED = true
     var executionCounter = 0
     
     // Folder bookmarks
@@ -71,7 +65,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case idle
         case syncing
         case checking // New state for when checking status while idle
-        case paused // Paused monitoring
         case error
     }
     
@@ -89,8 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateIcon()
         buildMenu()
         
-        // Start the continuous check loop
-        scheduleNextCheck()
+        // No automatic polling - only manual checks and when syncing
     }
     
     // NSMenuDelegate method - called when menu is about to open
@@ -99,16 +91,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("📱 Menu opened - triggering manual check")
         }
         
-        // Trigger an immediate check when menu is opened (only if not paused)
-        if !isCheckingStatus && !isPaused {
+        // Trigger an immediate check when menu is opened
+        if !isCheckingStatus {
             if LOGGING_ENABLED {
                 print("✅ Starting manual check...")
             }
             checkICloudStatus()
-        } else if isPaused {
-            if LOGGING_ENABLED {
-                print("⏸️ Monitoring paused, skipping check")
-            }
         } else {
             if LOGGING_ENABLED {
                 print("⚠️ Check already in progress, skipping manual trigger")
@@ -117,18 +105,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func scheduleNextCheck() {
-        // Don't schedule if paused
-        if isPaused {
-            if LOGGING_ENABLED {
-                print("⏸️ Monitoring paused, not scheduling next check")
+        // Only schedule next check if syncing (fast polling during active sync)
+        if syncStatus == .syncing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + FAST_POLL_INTERVAL) { [weak self] in
+                self?.checkICloudStatus()
             }
-            return
         }
-        
-        // Use current interval (fast when syncing, slow when idle)
-        DispatchQueue.main.asyncAfter(deadline: .now() + currentCheckInterval) { [weak self] in
-            self?.checkICloudStatus()
-        }
+        // When idle, no automatic checks - only manual via menu open
     }
     
     func updateIcon() {
@@ -303,13 +286,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .prefix(5)
             .map { $0.key }
         
-        // Update sync status and adjust polling interval
+        // Update sync status
         if hasActivity {
             syncStatus = .syncing
-            currentCheckInterval = FAST_POLL_INTERVAL // Poll every 5 seconds when active
         } else {
             syncStatus = .idle
-            currentCheckInterval = SLOW_POLL_INTERVAL // Poll every 60 seconds when idle
         }
         
         iCloudStatus = newStatus
@@ -318,7 +299,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("Parsed status: Active=\(newStatus.isActive), Uploading=\(newStatus.uploadingFiles), Downloading=\(newStatus.downloadingFiles)")
             print("Upload GB: \(newStatus.uploadPendingGB), Download GB: \(newStatus.downloadPendingGB)")
             print("Folders: \(newStatus.recentFolders)")
-            print("Next check in: \(currentCheckInterval)s")
         }
         
         buildMenu()
@@ -428,24 +408,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        // === PAUSE/RESUME ===
-        let pauseResumeItem = NSMenuItem(
-            title: isPaused ? "Resume Monitoring" : "Pause Monitoring",
-            action: #selector(togglePauseResume),
-            keyEquivalent: "p"
-        )
-        pauseResumeItem.target = self
-        menu.addItem(pauseResumeItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
         // === QUIT ===
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quitItem)
         
         statusItem.menu = menu
     }
-    
+
     @objc func openFolder(_ sender: NSMenuItem) {
         let folderName = iCloudStatus.recentFolders[sender.tag]
         
@@ -497,27 +466,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     
-    @objc func togglePauseResume() {
-        isPaused.toggle()
-        
-        if isPaused {
-            syncStatus = .paused
-            if LOGGING_ENABLED {
-                print("⏸️ Monitoring paused")
-            }
-        } else {
-            // Resume monitoring
-            syncStatus = .idle
-            if LOGGING_ENABLED {
-                print("▶️ Monitoring resumed")
-            }
-            // Trigger immediate check when resuming
-            checkICloudStatus()
-        }
-        
-        buildMenu()
-    }
-    
     @objc func openICloudFolder() {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         let iCloudPath = homeDirectory.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
@@ -542,13 +490,14 @@ app.run()
  iCloud Drive Monitor - Complete Features:
  
  ✅ Real-time iCloud sync monitoring via brctl
- ✅ Adaptive polling (5s when syncing, 60s when idle)
- ✅ Manual refresh on menu open
+ ✅ Manual checks when opening menu
+ ✅ Fast polling (5s) during active sync, stops when idle
  ✅ Recent folders (last 5, expires after 30 min)
  ✅ Quick bookmark shortcuts
  ✅ Upload/download activity tracking
+ ✅ Last check timestamp
  ✅ Animated menu bar icon
- ✅ Energy efficient
+ ✅ Energy efficient (no polling when idle)
  ✅ Production ready (logging disabled)
  
  To enable debug logging: Set LOGGING_ENABLED = true
